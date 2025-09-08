@@ -1,0 +1,220 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(uuid())
+  nationalId String   @unique
+  password   String
+  role       Role
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  userDoc    UserDoc?
+
+  // Relations based on role
+  ownedHouses       House[]     @relation("HouseOwner")
+  managedApartments Apartment[] @relation("ApartmentLeader") // Optional - can be empty if no apartments managed
+  postedJobs        Job[]       @relation("JobLeader") // Optional - can be empty if no jobs posted
+  createdJobs       Job[]       @relation("JobCreator") // Jobs created by this user (home owners)
+
+  // Home owner apartment assignment
+  apartmentId String?
+  apartment   Apartment? @relation("ApartmentOwner", fields: [apartmentId], references: [id])
+}
+
+model Apartment {
+  id        String   @id @default(uuid())
+  name      Json // Apartment name with translations {en: string, ar: string}
+  hoaNumber String   @unique // HOA number - unique across system
+  address   Json // Full address with translations {en: string, ar: string}
+  city      Json // City with translations {en: string, ar: string}
+  state     Json? // State with translations {en: string, ar: string}
+  country   Json   @default("{\"en\": \"Saudi Arabia\", \"ar\": \"السعودية\"}")
+  leaderId  String? // User ID who is the leader (optional initially)
+  leader    User?    @relation("ApartmentLeader", fields: [leaderId], references: [id])
+  houses    House[] // Multiple houses in this apartment
+  jobs      Job[] // Jobs posted for this apartment
+  owners    User[]   @relation("ApartmentOwner") // Home owners belonging to this apartment
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model House {
+  id          String    @id @default(uuid())
+  houseNumber String // House/Flat number within apartment
+  apartmentId String
+  apartment   Apartment @relation(fields: [apartmentId], references: [id])
+  ownerId     String // User ID who owns this house
+  owner       User      @relation("HouseOwner", fields: [ownerId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([apartmentId, houseNumber]) // Unique house number within apartment
+}
+
+model ServiceProvider {
+  id                    String                    @id @default(uuid())
+  name                  Json // Service provider name with translations {en: string, ar: string}
+  email                 String                    @unique
+  phoneNumber           String
+  signupStep            Int                       @default(1)
+  governmentDocumentUrl String?
+  services              ServiceProviderService[]
+  serviceRates          ServiceRate[]
+  locations             ServiceProviderLocation[]
+  bio                   Json? // Bio with translations {en: string, ar: string}
+  profilePictureUrl     String?
+  firstName             Json? // First name with translations {en: string, ar: string}
+  lastName              Json? // Last name with translations {en: string, ar: string}
+  bankAccountNumber     String?
+  bankDocumentUrl       String?
+  isActive              Boolean                   @default(false)
+  isVerified            Boolean                   @default(true)
+
+  rating        Float @default(0)
+  totalEarnings Float @default(0)
+  totalJobs     Int   @default(0)
+  bids          Bid[] // Bids made by this service provider
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ServiceProviderService {
+  id                String          @id @default(uuid())
+  serviceProviderId String
+  serviceProvider   ServiceProvider @relation(fields: [serviceProviderId], references: [id])
+  serviceId         String
+  service           Service         @relation(fields: [serviceId], references: [id])
+  createdAt         DateTime        @default(now())
+
+  @@unique([serviceProviderId, serviceId])
+}
+
+model ServiceRate {
+  id                String          @id @default(uuid())
+  serviceProviderId String
+  serviceProvider   ServiceProvider @relation(fields: [serviceProviderId], references: [id])
+  serviceId         String
+  service           Service         @relation(fields: [serviceId], references: [id])
+  rate              String
+  description       String?
+  createdAt         DateTime        @default(now())
+
+  @@unique([serviceProviderId, serviceId])
+}
+
+model ServiceProviderLocation {
+  id                String          @id @default(uuid())
+  serviceProviderId String
+  serviceProvider   ServiceProvider @relation(fields: [serviceProviderId], references: [id])
+  city              String
+  state             String?
+  country           String          @default("Saudi Arabia")
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+}
+
+model UserDoc {
+  id        String   @id @default(uuid())
+  imageUrls String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Service {
+  id                      String                   @id @default(uuid())
+  name                    Json // Service name with translations {en: string, ar: string}
+  description             Json? // Service description with translations {en: string, ar: string}
+  image                   String?
+  jobs                    JobService[] // Jobs that require this service
+  serviceProviderServices ServiceProviderService[]
+  serviceRates            ServiceRate[]
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+}
+
+model Job {
+  id              String       @id @default(uuid())
+  title           Json // Job title with translations {en: string, ar: string}
+  description     Json // Job description with translations {en: string, ar: string}
+  charges         Json // Charges with translations {en: string, ar: string}
+  workDuration    Json // Work duration with translations {en: string, ar: string}
+  startDate       DateTime
+  endDate         DateTime
+  timeSlot        Json // Time slot with translations {en: string, ar: string}
+  location        Json // Specific location within apartment with translations {en: string, ar: string}
+  experienceLevel Json? // Optional experience requirement with translations {en: string, ar: string}
+  apartmentId     String // Which apartment this job is for
+  apartment       Apartment    @relation(fields: [apartmentId], references: [id])
+  leaderId        String? // Leader who posted the job (optional initially)
+  leader          User?        @relation("JobLeader", fields: [leaderId], references: [id])
+  createdBy       String // User who created the job (home owner)
+  creator         User         @relation("JobCreator", fields: [createdBy], references: [id])
+  jobType         JobType      @default(HOME_SERVICE) // HOME_SERVICE or COMMUNITY_SERVICE
+  status          JobStatus    @default(OPEN)
+  services        JobService[] // Multiple services for this job
+  bids            Bid[] // Bids received for this job
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model JobService {
+  id        String   @id @default(uuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id])
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([jobId, serviceId]) // Prevent duplicate services per job
+}
+
+model Bid {
+  id                String          @id @default(uuid())
+  jobId             String
+  job               Job             @relation(fields: [jobId], references: [id])
+  serviceProviderId String
+  serviceProvider   ServiceProvider @relation(fields: [serviceProviderId], references: [id])
+  totalPrice        Float
+  coverLetter       Json // Cover letter with translations {en: string, ar: string}
+  documentUrl       String?
+  status            BidStatus       @default(PENDING)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([jobId, serviceProviderId]) // One bid per service provider per job
+}
+
+enum Role {
+  HOME_OWNER
+  LEADER
+  ADMIN
+}
+
+enum JobStatus {
+  SENT_TO_LEADER // Community service job sent to leader for approval
+  POSTED_BY_LEADER // Leader approved and posted the job
+  OPEN // Job is open for bidding
+  IN_PROGRESS // Job is in progress
+  COMPLETED // Job is completed
+  CANCELLED // Job is cancelled
+}
+
+enum JobType {
+  HOME_SERVICE // Direct to service providers
+  COMMUNITY_SERVICE // Goes through leader approval
+}
+
+enum BidStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
