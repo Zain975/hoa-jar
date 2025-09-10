@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateJobDto, JobType } from './dto/create-job.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
@@ -41,7 +46,9 @@ export class JobService {
       if (userRole === 'HOME_OWNER') {
         // Home service: use the home owner's assigned apartment
         if (!user.apartmentId) {
-          throw new BadRequestException('Your account is not linked to any apartment');
+          throw new BadRequestException(
+            'Your account is not linked to any apartment',
+          );
         }
 
         // If payload provides apartmentId, ensure it matches the user's apartment
@@ -78,12 +85,16 @@ export class JobService {
         leaderId = userId;
         initialStatus = JobStatus.OPEN;
       } else {
-        throw new ForbiddenException('Invalid role for creating home service job');
+        throw new ForbiddenException(
+          'Invalid role for creating home service job',
+        );
       }
     } else if (createJobDto.jobType === JobType.COMMUNITY_SERVICE) {
       // For community service, apartmentId is required
       if (!createJobDto.apartmentId) {
-        throw new BadRequestException('Apartment ID is required for community service jobs');
+        throw new BadRequestException(
+          'Apartment ID is required for community service jobs',
+        );
       }
 
       const apartment = await this.prisma.apartment.findUnique({
@@ -96,7 +107,9 @@ export class JobService {
       }
 
       if (!apartment.leaderId) {
-        throw new BadRequestException('This apartment does not have a leader assigned');
+        throw new BadRequestException(
+          'This apartment does not have a leader assigned',
+        );
       }
 
       if (userRole === 'HOME_OWNER') {
@@ -122,7 +135,9 @@ export class JobService {
         leaderId = userId;
         initialStatus = JobStatus.OPEN; // Directly open when leader posts community job
       } else {
-        throw new ForbiddenException('Invalid role for creating community service job');
+        throw new ForbiddenException(
+          'Invalid role for creating community service job',
+        );
       }
     } else {
       throw new BadRequestException('Invalid job type');
@@ -141,11 +156,15 @@ export class JobService {
       this.translationService.createTranslationObject(createJobDto.title),
       this.translationService.createTranslationObject(createJobDto.description),
       this.translationService.createTranslationObject(createJobDto.charges),
-      this.translationService.createTranslationObject(createJobDto.workDuration),
+      this.translationService.createTranslationObject(
+        createJobDto.workDuration,
+      ),
       this.translationService.createTranslationObject(createJobDto.timeSlot),
       this.translationService.createTranslationObject(createJobDto.location),
       createJobDto.experienceLevel
-        ? this.translationService.createTranslationObject(createJobDto.experienceLevel)
+        ? this.translationService.createTranslationObject(
+            createJobDto.experienceLevel,
+          )
         : { en: '', ar: '' },
     ]);
 
@@ -162,7 +181,9 @@ export class JobService {
           endDate: new Date(createJobDto.endDate),
           timeSlot: timeSlotTranslations,
           location: locationTranslations,
-          experienceLevel: createJobDto.experienceLevel ? experienceLevelTranslations : undefined,
+          experienceLevel: createJobDto.experienceLevel
+            ? experienceLevelTranslations
+            : undefined,
           apartmentId: apartmentId,
           leaderId: leaderId,
           createdBy: userId,
@@ -173,14 +194,14 @@ export class JobService {
 
       // Create job-service relationships
       await Promise.all(
-        createJobDto.serviceIds.map(serviceId =>
+        createJobDto.serviceIds.map((serviceId) =>
           prisma.jobService.create({
             data: {
               jobId: createdJob.id,
               serviceId: serviceId,
             },
-          })
-        )
+          }),
+        ),
       );
 
       return createdJob;
@@ -431,58 +452,174 @@ export class JobService {
     });
   }
 
-  async findByCreator(userId: string) {
-    return this.prisma.job.findMany({
-      where: { createdBy: userId },
-      include: {
-        services: {
-          include: {
-            service: true,
-          },
+  // async findByCreator(userId: string) {
+  //   return this.prisma.job.findMany({
+  //     where: { createdBy: userId },
+  //     include: {
+  //       services: {
+  //         include: {
+  //           service: true,
+  //         },
+  //       },
+  //       apartment: {
+  //         select: {
+  //           id: true,
+  //           name: true,
+  //           hoaNumber: true,
+  //           city: true,
+  //         },
+  //       },
+  //       leader: {
+  //         select: {
+  //           id: true,
+  //           nationalId: true,
+  //           role: true,
+  //         },
+  //       },
+  //       creator: {
+  //         select: {
+  //           id: true,
+  //           nationalId: true,
+  //           role: true,
+  //         },
+  //       },
+  //       bids: {
+  //         include: {
+  //           serviceProvider: {
+  //             select: {
+  //               id: true,
+  //               name: true,
+  //               rating: true,
+  //               totalJobs: true,
+  //               totalEarnings: true,
+  //             },
+  //           },
+  //         },
+  //         orderBy: {
+  //           totalPrice: 'asc',
+  //         },
+  //       },
+  //     },
+  //     orderBy: {
+  //       createdAt: 'desc',
+  //     },
+  //   });
+  // }
+
+  async findByCreator(userId: string, userRole: string, status?: JobStatus) {
+    let jobs: any[] = [];
+
+    // Build status filter if provided
+    const statusFilter = status ? { status } : {};
+
+    if (userRole === 'LEADER') {
+      // Get apartments managed by this leader
+      const apartments = await this.prisma.apartment.findMany({
+        where: { leaderId: userId },
+        select: { id: true },
+      });
+      const apartmentIds = apartments.map((a) => a.id);
+
+      // Fetch jobs created by leader
+      const leaderJobs = await this.prisma.job.findMany({
+        where: {
+          createdBy: userId,
+          ...statusFilter,
         },
-        apartment: {
-          select: {
-            id: true,
-            name: true,
-            hoaNumber: true,
-            city: true,
+        include: {
+          services: { include: { service: true } },
+          apartment: {
+            select: { id: true, name: true, hoaNumber: true, city: true },
           },
-        },
-        leader: {
-          select: {
-            id: true,
-            nationalId: true,
-            role: true,
-          },
-        },
-        creator: {
-          select: {
-            id: true,
-            nationalId: true,
-            role: true,
-          },
-        },
-        bids: {
-          include: {
-            serviceProvider: {
-              select: {
-                id: true,
-                name: true,
-                rating: true,
-                totalJobs: true,
-                totalEarnings: true,
+          leader: { select: { id: true, nationalId: true, role: true } },
+          creator: { select: { id: true, nationalId: true, role: true } },
+          bids: {
+            include: {
+              serviceProvider: {
+                select: {
+                  id: true,
+                  name: true,
+                  rating: true,
+                  totalJobs: true,
+                  totalEarnings: true,
+                },
               },
             },
-          },
-          orderBy: {
-            totalPrice: 'asc',
+            orderBy: { totalPrice: 'asc' },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // Fetch community service jobs created by home owners for leader's apartments
+      const communityJobs = await this.prisma.job.findMany({
+        where: {
+          apartmentId: { in: apartmentIds },
+          jobType: 'COMMUNITY_SERVICE',
+          ...statusFilter,
+        },
+        include: {
+          services: { include: { service: true } },
+          apartment: {
+            select: { id: true, name: true, hoaNumber: true, city: true },
+          },
+          leader: { select: { id: true, nationalId: true, role: true } },
+          creator: { select: { id: true, nationalId: true, role: true } },
+          bids: {
+            include: {
+              serviceProvider: {
+                select: {
+                  id: true,
+                  name: true,
+                  rating: true,
+                  totalJobs: true,
+                  totalEarnings: true,
+                },
+              },
+            },
+            orderBy: { totalPrice: 'asc' },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      jobs = [...leaderJobs, ...communityJobs];
+      // Optionally, sort all jobs by createdAt descending
+      jobs.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    } else {
+      // For home owners, just fetch their jobs
+      jobs = await this.prisma.job.findMany({
+        where: {
+          createdBy: userId,
+          ...statusFilter,
+        },
+        include: {
+          services: { include: { service: true } },
+          apartment: {
+            select: { id: true, name: true, hoaNumber: true, city: true },
+          },
+          leader: { select: { id: true, nationalId: true, role: true } },
+          creator: { select: { id: true, nationalId: true, role: true } },
+          bids: {
+            include: {
+              serviceProvider: {
+                select: {
+                  id: true,
+                  name: true,
+                  rating: true,
+                  totalJobs: true,
+                  totalEarnings: true,
+                },
+              },
+            },
+            orderBy: { totalPrice: 'asc' },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    return jobs;
   }
 
   async findPendingCommunityJobs(leaderId: string) {
@@ -492,7 +629,9 @@ export class JobService {
     });
 
     if (!leader || leader.role !== 'LEADER') {
-      throw new ForbiddenException('Only leaders can view pending community service jobs');
+      throw new ForbiddenException(
+        'Only leaders can view pending community service jobs',
+      );
     }
 
     return this.prisma.job.findMany({
@@ -541,12 +680,16 @@ export class JobService {
     });
 
     if (!existingJob) {
-      throw new NotFoundException('Job not found or you are not authorized to update it');
+      throw new NotFoundException(
+        'Job not found or you are not authorized to update it',
+      );
     }
 
     // Only allow updates if job is still open
     if (existingJob.status !== JobStatus.OPEN) {
-      throw new BadRequestException('Cannot update job that is not in OPEN status');
+      throw new BadRequestException(
+        'Cannot update job that is not in OPEN status',
+      );
     }
 
     // If serviceIds are being updated, verify all services exist
@@ -572,8 +715,12 @@ export class JobService {
           description: updateJobDto.description,
           charges: updateJobDto.charges,
           workDuration: updateJobDto.workDuration,
-          startDate: updateJobDto.startDate ? new Date(updateJobDto.startDate) : undefined,
-          endDate: updateJobDto.endDate ? new Date(updateJobDto.endDate) : undefined,
+          startDate: updateJobDto.startDate
+            ? new Date(updateJobDto.startDate)
+            : undefined,
+          endDate: updateJobDto.endDate
+            ? new Date(updateJobDto.endDate)
+            : undefined,
           timeSlot: updateJobDto.timeSlot,
           location: updateJobDto.location,
           experienceLevel: updateJobDto.experienceLevel,
@@ -589,14 +736,14 @@ export class JobService {
 
         // Add new services
         await Promise.all(
-          updateJobDto.serviceIds.map(serviceId =>
+          updateJobDto.serviceIds.map((serviceId) =>
             prisma.jobService.create({
               data: {
                 jobId: id,
                 serviceId: serviceId,
               },
-            })
-          )
+            }),
+          ),
         );
       }
 
@@ -646,12 +793,16 @@ export class JobService {
     });
 
     if (!existingJob) {
-      throw new NotFoundException('Job not found or you are not authorized to delete it');
+      throw new NotFoundException(
+        'Job not found or you are not authorized to delete it',
+      );
     }
 
     // Only allow deletion if job is still open
     if (existingJob.status !== JobStatus.OPEN) {
-      throw new BadRequestException('Cannot delete job that is not in OPEN status');
+      throw new BadRequestException(
+        'Cannot delete job that is not in OPEN status',
+      );
     }
 
     // Delete the job with transaction to handle related records
@@ -687,7 +838,9 @@ export class JobService {
     });
 
     if (!existingJob) {
-      throw new NotFoundException('Job not found or you are not authorized to update it');
+      throw new NotFoundException(
+        'Job not found or you are not authorized to update it',
+      );
     }
 
     const updatedJob = await this.prisma.job.update({
@@ -730,7 +883,9 @@ export class JobService {
     });
 
     if (!leader || leader.role !== 'LEADER') {
-      throw new ForbiddenException('Only leaders can approve community service jobs');
+      throw new ForbiddenException(
+        'Only leaders can approve community service jobs',
+      );
     }
 
     // Verify the job exists and is a community service job
@@ -748,7 +903,9 @@ export class JobService {
     }
 
     if (job.jobType !== 'COMMUNITY_SERVICE') {
-      throw new BadRequestException('Only community service jobs can be approved');
+      throw new BadRequestException(
+        'Only community service jobs can be approved',
+      );
     }
 
     if (job.status !== 'SENT_TO_LEADER') {
@@ -757,7 +914,9 @@ export class JobService {
 
     // Verify the leader is authorized to approve this job
     if (job.apartment.leaderId !== leaderId) {
-      throw new ForbiddenException('You are not authorized to approve jobs for this apartment');
+      throw new ForbiddenException(
+        'You are not authorized to approve jobs for this apartment',
+      );
     }
 
     // Update job status to POSTED_BY_LEADER
@@ -811,7 +970,9 @@ export class JobService {
     });
 
     if (!leader || leader.role !== 'LEADER') {
-      throw new ForbiddenException('Only leaders can reject community service jobs');
+      throw new ForbiddenException(
+        'Only leaders can reject community service jobs',
+      );
     }
 
     // Verify the job exists and is a community service job
@@ -829,7 +990,9 @@ export class JobService {
     }
 
     if (job.jobType !== 'COMMUNITY_SERVICE') {
-      throw new BadRequestException('Only community service jobs can be rejected');
+      throw new BadRequestException(
+        'Only community service jobs can be rejected',
+      );
     }
 
     if (job.status !== 'SENT_TO_LEADER') {
@@ -838,7 +1001,9 @@ export class JobService {
 
     // Verify the leader is authorized to reject this job
     if (job.apartment.leaderId !== leaderId) {
-      throw new ForbiddenException('You are not authorized to reject jobs for this apartment');
+      throw new ForbiddenException(
+        'You are not authorized to reject jobs for this apartment',
+      );
     }
 
     // Update job status to CANCELLED
