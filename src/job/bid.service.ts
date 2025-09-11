@@ -50,7 +50,7 @@ export class BidService {
       throw new NotFoundException('Job not found');
     }
 
-    if (job.status !== 'OPEN') {
+    if (job.status !== 'OPEN' && job.status !== 'POSTED_BY_LEADER') {
       throw new BadRequestException('Cannot bid on job that is not open');
     }
 
